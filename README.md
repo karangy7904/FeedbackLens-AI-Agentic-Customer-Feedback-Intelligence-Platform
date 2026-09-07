@@ -1,3 +1,4 @@
+https://rag-customer-feedback-huuqzeappppqkgfuymfrjtyb.streamlit.app/
 # Customer Feedback RAG — Extension
 
 This extends the original PDF-RAG tutorial project into a tool actually built for
