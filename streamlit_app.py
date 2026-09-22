@@ -555,15 +555,9 @@ if st.session_state.tagged_df is not None:
                     )
                 )
 
-                ac3.metric(
-                    "Percentage",
-                    (
-                        f"{analytics.get(
-                            'percentage_of_total',
-                            0
-                        )}%"
-                    )
-                )
+                percentage = analytics.get("percentage_of_total",0)
+
+                ac3.metric("Percentage",f"{percentage}%")
 
                 # --------------------------------------------
                 # RAW ANALYTICS DATA
