@@ -1,3 +1,4 @@
+from agents import run_feedback_agent
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -177,77 +178,66 @@ if st.session_state.tagged_df is not None:
 
     if question and st.button("Ask"):
 
-        if st.session_state.vectorstore is None:
-            st.error(
-                "Please process the feedback before asking a question."
-            )
-            st.stop()
+    if st.session_state.vectorstore is None:
+        st.error(
+            "Please process the feedback before asking a question."
+        )
+        st.stop()
 
-        filter_dict = {}
+    sentiment_override = (
+        None
+        if sentiment_filter == "Any"
+        else sentiment_filter
+    )
 
-        if sentiment_filter != "Any":
-            filter_dict["sentiment"] = sentiment_filter
+    topic_override = (
+        None
+        if topic_filter == "Any"
+        else topic_filter
+    )
 
-        if topic_filter != "Any":
-            filter_dict["topic"] = topic_filter
+    with st.spinner("AI agents are analyzing the feedback..."):
 
-        with st.spinner(
-            "Retrieving and generating answer..."
-        ):
+        client = get_groq_client()
 
-            docs = (
-                st.session_state.vectorstore
-                .similarity_search(
-                    question,
-                    k=5,
-                    filter=filter_dict or None
-                )
-            )
+        result = run_feedback_agent(
+            question=question,
+            df=st.session_state.tagged_df,
+            vectorstore=st.session_state.vectorstore,
+            client=client,
+            sentiment_override=sentiment_override,
+            topic_override=topic_override
+        )
 
-            if not docs:
-                st.warning(
-                    "No feedback matched your selected filters."
-                )
-                st.stop()
+    st.subheader("AI Analysis")
 
-            context = "\n".join(
-                f"- ({d.metadata['sentiment']}, "
-                f"{d.metadata['topic']}) "
-                f"{d.page_content}"
-                for d in docs
-            )
+    st.write(result["answer"])
+    
+    with st.expander("🤖 Agent Execution Trace"):
 
-            prompt = (
-                "You are analyzing customer feedback. "
-                "Using only the feedback below, "
-                "answer the question concisely.\n\n"
-                f"Feedback:\n{context}\n\n"
-                f"Question: {question}\n"
-                "Answer:"
-            )
+    plan = result["plan"]
+    route_labels = {
+    "retrieval": "🔍 Retrieval Agent",
+    "analytics": "📊 Analytics Agent",
+    "both": "🔍 Retrieval Agent + 📊 Analytics Agent"
+}
 
-            client = get_groq_client()
+    st.write("**Route selected:**", plan["route"])
 
-            completion = client.chat.completions.create(
-                model="openai/gpt-oss-20b",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                max_tokens=300,
-                temperature=0.3
-            )
+    st.write(
+        "**Detected sentiment:**",
+        plan["sentiment"] or "Any"
+    )
 
-            answer = (
-                completion
-                .choices[0]
-                .message
-                .content
-            )
+    st.write(
+        "**Detected topic:**",
+        plan["topic"] or "Any"
+    )
 
-        st.write(answer)
+    st.write(
+        "**Recommendations requested:**",
+        "Yes" if plan["needs_recommendation"] else "No"
+    )
 
         with st.expander("Source feedback used"):
 
