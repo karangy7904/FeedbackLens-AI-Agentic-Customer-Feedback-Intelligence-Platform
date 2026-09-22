@@ -1,3 +1,4 @@
+import os
 from agents import run_feedback_agent
 
 import streamlit as st
@@ -61,8 +62,21 @@ def load_tagger():
 @st.cache_resource
 def get_groq_client():
 
+    api_key = os.getenv("GROQ_API_KEY")
+
+    if not api_key:
+        try:
+            api_key = st.secrets["GROQ_API_KEY"]
+        except Exception:
+            api_key = None
+
+    if not api_key:
+        raise RuntimeError(
+            "GROQ_API_KEY is not configured."
+        )
+
     return Groq(
-        api_key=st.secrets["GROQ_API_KEY"]
+        api_key=api_key
     )
 
 
