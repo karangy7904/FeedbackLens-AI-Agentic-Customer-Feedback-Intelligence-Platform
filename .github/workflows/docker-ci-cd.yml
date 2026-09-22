@@ -1,0 +1,199 @@
+name: Docker CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+
+jobs:
+
+  build-test-publish:
+
+    name: Build, Test and Publish
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # =====================================================
+      # 1. GET SOURCE CODE
+      # =====================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+
+      # =====================================================
+      # 2. CHECK PYTHON SYNTAX
+      # =====================================================
+
+      - name: Check Python syntax
+        run: |
+          python -m compileall \
+            agents.py \
+            streamlit_app.py \
+            sentiment_tagging.py \
+            ingest_feedback.py \
+            system.py
+
+
+      # =====================================================
+      # 3. CREATE LOWERCASE GHCR IMAGE NAME
+      # =====================================================
+
+      - name: Set Docker image name
+        shell: bash
+        run: |
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+
+      # =====================================================
+      # 4. BUILD DOCKER IMAGE
+      # =====================================================
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t customer-feedback-ai:ci \
+            .
+
+
+      # =====================================================
+      # 5. START STREAMLIT CONTAINER
+      # =====================================================
+
+      - name: Start Docker container
+        run: |
+          docker run \
+            -d \
+            --name customer-feedback-app \
+            -p 8501:8501 \
+            customer-feedback-ai:ci
+
+
+      # =====================================================
+      # 6. TEST STREAMLIT
+      # =====================================================
+
+      - name: Test Streamlit health
+        shell: bash
+        run: |
+          healthy=false
+
+          for i in {1..30}; do
+
+            if curl \
+              --fail \
+              --silent \
+              http://127.0.0.1:8501/_stcore/health
+            then
+
+              echo ""
+              echo "Streamlit application is healthy."
+
+              healthy=true
+
+              break
+
+            fi
+
+            echo "Waiting for Streamlit..."
+            sleep 2
+
+          done
+
+
+          if [ "$healthy" != "true" ]; then
+
+            echo "Streamlit failed to start."
+
+            echo "===== CONTAINER LOGS ====="
+
+            docker logs customer-feedback-app
+
+            exit 1
+
+          fi
+
+
+      # =====================================================
+      # 7. SHOW CONTAINER LOGS
+      # =====================================================
+
+      - name: Show container status
+        run: |
+          docker ps
+          docker logs customer-feedback-app
+
+
+      # =====================================================
+      # 8. STOP TEST CONTAINER
+      # =====================================================
+
+      - name: Stop test container
+        if: always()
+        run: |
+          docker rm \
+            -f \
+            customer-feedback-app \
+            || true
+
+
+      # =====================================================
+      # 9. LOGIN TO GITHUB CONTAINER REGISTRY
+      # =====================================================
+
+      - name: Login to GitHub Container Registry
+        if: >
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+
+      # =====================================================
+      # 10. TAG DOCKER IMAGE
+      # =====================================================
+
+      - name: Tag Docker image
+        if: >
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        run: |
+          docker tag \
+            customer-feedback-ai:ci \
+            "${IMAGE_NAME}:latest"
+
+          docker tag \
+            customer-feedback-ai:ci \
+            "${IMAGE_NAME}:${GITHUB_SHA}"
+
+
+      # =====================================================
+      # 11. PUSH DOCKER IMAGE TO GHCR
+      # =====================================================
+
+      - name: Push Docker image
+        if: >
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        run: |
+          docker push \
+            "${IMAGE_NAME}:latest"
+
+          docker push \
+            "${IMAGE_NAME}:${GITHUB_SHA}"
